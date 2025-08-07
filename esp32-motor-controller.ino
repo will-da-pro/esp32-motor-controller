@@ -31,7 +31,7 @@ public:
   void reset();
 
   float kp = 1.0;
-  float ki = 0.1;
+  float ki = 0.3;
   float kd = 0.01;
 
 private:
@@ -74,7 +74,7 @@ public:
   PIDController pidController;
 
   int maxSpeed = 900;
-  int minOutput = 75;
+  int minOutput = 0;
 
 private:
   uint8_t pwmPin;
@@ -123,7 +123,7 @@ int PIDController::calculatePID(int error) {
   float deltaT = float(currentTime - this->prevTime) / 1.0e6;
   this->prevTime = currentTime;
 
-  Serial1.printf("deltaT: %f\n", deltaT);
+  //Serial1.printf("deltaT: %f\n", deltaT);
 
   float errorDerivative = 0;
 
@@ -262,11 +262,9 @@ void Motor::update() {
 
   int pid = this->pidController.calculatePID(error);
 
-  float rangeMult = float(this->minOutput) / 255;
+  float rangeMult = float(255 - this->minOutput) / 255;
 
   int output = rangeMult * pid + this->minOutput;
-
-  Serial1.printf("Motor Output: %d, pid: %d\n", output, pid);
 
   if (output > 255) {
     output = 255;
