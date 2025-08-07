@@ -66,9 +66,10 @@ public:
   ~Motor();
 
   void drive(uint8_t speed, bool reversed);
-  void drivePWM(uint8_t speed, bool reversed);
+  void drivePID(uint8_t speed, bool reversed);
   void stop();
   void update();
+  bool isActive();
 
   PIDController pidController;
 
@@ -82,6 +83,8 @@ private:
   uint targetSpeed = 0;
   bool reversed = false;
 
+  bool active = false;
+
   std::shared_ptr<Encoder> encoder;
 };
 
@@ -94,6 +97,7 @@ public:
   void straight(uint8_t speed, uint8_t distance);
   void turn(uint8_t speed, int distance);
   void stop();
+  void update();
 
   std::shared_ptr<Encoder> leftEncoder;
   std::shared_ptr<Encoder> rightEncoder;
@@ -198,6 +202,8 @@ Motor::~Motor() {
 }
 
 void Motor::drive(uint8_t speed, bool reversed) {
+  this->active = true;
+
   if (reversed) {
     speed = 255 - speed;
   }
@@ -206,9 +212,13 @@ void Motor::drive(uint8_t speed, bool reversed) {
   digitalWrite(this->dirPin, reversed);
 }
 
-void Motor::drivePWM(uint8_t speed, bool reversed) {
+void Motor::drivePID(uint8_t speed, bool reversed) {
+  this->active = true;
+
   this->targetSpeed = float(speed) / 255 * float(this->maxSpeed);
   this->reversed = reversed;
+
+  this->pidController.reset();
 
   this->update();
 }
@@ -216,11 +226,37 @@ void Motor::drivePWM(uint8_t speed, bool reversed) {
 void Motor::stop() {
   analogWrite(this->pwmPin, 0);
   digitalWrite(this->dirPin, LOW);
+
+  this->active = false;
 }
 
 void Motor::update() {
+  if (!this->active) {
+    return;
+  }
+
   int currentSpeed = this->encoder->getSpeed();
   int error = this->targetSpeed - currentSpeed;
+
+  int pid = this->pidController.calculatePID(error);
+
+  float rangeMult = float(this->minOutput) / 255;
+
+  int output = rangeMult * pid + this->minOutput;
+
+  if (output > 255) {
+    output = 255;
+  }
+
+  else if (output < this->minOutput) {
+    output = this->minOutput;
+  }
+
+  this->drive(uint8_t(output), this->reversed);
+}
+
+bool Motor::isActive() {
+  return this->active;
 }
 
 
@@ -264,8 +300,8 @@ void Robot::drive(int8_t speed, int8_t turnRate) {
     rightReversed = false;
   }
 
-  this->leftMotor->drive(leftSpeed, leftReversed);
-  this->rightMotor->drive(rightSpeed, rightReversed);
+  this->leftMotor->drivePID(leftSpeed, leftReversed);
+  this->rightMotor->drivePID(rightSpeed, rightReversed);
 }
 
 void Robot::straight(uint8_t speed, uint8_t distance) {
@@ -279,6 +315,11 @@ void Robot::straight(uint8_t speed, uint8_t distance) {
 void Robot::stop() {
   this->leftMotor->stop();
   this->rightMotor->stop();
+}
+
+void Robot::update() {
+  this->leftMotor->update();
+  this->rightMotor->update();
 }
 
 
@@ -311,6 +352,8 @@ void setup() {
 }
 
 void loop() {
+  robot.update();
+
   if (Serial1.available()) {
     char* header = new char[2];
     Serial1.read(header, 2);
