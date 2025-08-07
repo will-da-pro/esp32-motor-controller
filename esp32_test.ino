@@ -57,6 +57,7 @@ private:
 
   time_t lastInterrupt = micros();
   int currentSpeed = 0;
+  int speedArray[4];
 };
 
 
@@ -69,7 +70,6 @@ public:
   void drivePID(uint8_t speed, bool reversed);
   void stop();
   void update();
-  bool isActive();
 
   PIDController pidController;
 
@@ -83,7 +83,7 @@ private:
   uint targetSpeed = 0;
   bool reversed = false;
 
-  bool active = false;
+  bool pidActive = false;
 
   std::shared_ptr<Encoder> encoder;
 };
@@ -114,19 +114,30 @@ private:
 
 
 PIDController::PIDController() {
-  this->prevTime = millis();
+  this->prevTime = micros();
 }
 
 int PIDController::calculatePID(int error) {
-  long currentTime = millis();
+  long currentTime = micros();
 
   float deltaT = float(currentTime - this->prevTime) / 1.0e6;
   this->prevTime = currentTime;
 
-  float errorDerivative = float(error - this->prevError) / deltaT;
+  Serial1.printf("deltaT: %f\n", deltaT);
+
+  float errorDerivative = 0;
+
+  if (deltaT > 0) {
+    errorDerivative = float(error - this->prevError) / (deltaT * 1);
+  }
+
   this->prevError = error;
 
+  //Serial1.printf("Derivative: %f\n", errorDerivative);
+
   this->errorIntegral += float(error) * deltaT;
+
+  //Serial1.printf("Integral: %f\n", this->errorIntegral);
 
   int result = error * this->kp + errorDerivative * this->kd + this->errorIntegral * this->ki;
   return result;
@@ -134,7 +145,7 @@ int PIDController::calculatePID(int error) {
 
 void PIDController::reset() {
   this->prevError = 0;
-  this->prevTime = millis();
+  this->prevTime = micros();
   this->errorIntegral = 0;
 }
 
@@ -150,6 +161,10 @@ Encoder::Encoder(uint8_t pinA, uint8_t pinB) {
 
   pinMode(this->pinA, INPUT);
   pinMode(this->pinB, INPUT);
+
+  for (int i = 0; i < sizeof(this->speedArray) / sizeof(this->speedArray[0]); i++) {
+    this->speedArray[i] = 0;
+  }
 }
 
 int Encoder::getCount() {
@@ -178,7 +193,16 @@ void Encoder::interrupt() {
     speed = -speed;
   }
 
-  this->currentSpeed = speed;
+  int speedSum = speed;
+
+  for (int i = 0; i < sizeof(this->speedArray) / sizeof(this->speedArray[0]) - 1; i++) {
+    this->speedArray[i] = this->speedArray[i + 1];
+    speedSum += this->speedArray[i];
+  }
+
+  this->speedArray[sizeof(this->speedArray) / sizeof(this->speedArray[0]) - 1] = speed;
+
+  this->currentSpeed = speedSum / (sizeof(this->speedArray) / sizeof(this->speedArray[0]));
 }
 
 
@@ -202,8 +226,6 @@ Motor::~Motor() {
 }
 
 void Motor::drive(uint8_t speed, bool reversed) {
-  this->active = true;
-
   if (reversed) {
     speed = 255 - speed;
   }
@@ -213,7 +235,7 @@ void Motor::drive(uint8_t speed, bool reversed) {
 }
 
 void Motor::drivePID(uint8_t speed, bool reversed) {
-  this->active = true;
+  this->pidActive = true;
 
   this->targetSpeed = float(speed) / 255 * float(this->maxSpeed);
   this->reversed = reversed;
@@ -227,11 +249,11 @@ void Motor::stop() {
   analogWrite(this->pwmPin, 0);
   digitalWrite(this->dirPin, LOW);
 
-  this->active = false;
+  this->pidActive = false;
 }
 
 void Motor::update() {
-  if (!this->active) {
+  if (!this->pidActive) {
     return;
   }
 
@@ -244,6 +266,8 @@ void Motor::update() {
 
   int output = rangeMult * pid + this->minOutput;
 
+  Serial1.printf("Motor Output: %d, pid: %d\n", output, pid);
+
   if (output > 255) {
     output = 255;
   }
@@ -253,10 +277,6 @@ void Motor::update() {
   }
 
   this->drive(uint8_t(output), this->reversed);
-}
-
-bool Motor::isActive() {
-  return this->active;
 }
 
 
