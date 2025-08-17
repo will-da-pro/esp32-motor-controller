@@ -57,7 +57,6 @@ private:
 
   time_t lastInterrupt = micros();
   int currentSpeed = 0;
-  int speedArray[4];
 };
 
 
@@ -123,8 +122,6 @@ int PIDController::calculatePID(int error) {
   float deltaT = float(currentTime - this->prevTime) / 1.0e6;
   this->prevTime = currentTime;
 
-  //Serial1.printf("deltaT: %f\n", deltaT);
-
   float errorDerivative = 0;
 
   if (deltaT > 0) {
@@ -132,12 +129,7 @@ int PIDController::calculatePID(int error) {
   }
 
   this->prevError = error;
-
-  //Serial1.printf("Derivative: %f\n", errorDerivative);
-
   this->errorIntegral += float(error) * deltaT;
-
-  //Serial1.printf("Integral: %f\n", this->errorIntegral);
 
   int result = error * this->kp + errorDerivative * this->kd + this->errorIntegral * this->ki;
   return result;
@@ -161,10 +153,6 @@ Encoder::Encoder(uint8_t pinA, uint8_t pinB) {
 
   pinMode(this->pinA, INPUT);
   pinMode(this->pinB, INPUT);
-
-  for (int i = 0; i < sizeof(this->speedArray) / sizeof(this->speedArray[0]); i++) {
-    this->speedArray[i] = 0;
-  }
 }
 
 int Encoder::getCount() {
@@ -172,6 +160,10 @@ int Encoder::getCount() {
 }
 
 int Encoder::getSpeed() {
+  if (micros() - this->lastInterrupt > 100000) {
+    this->currentSpeed = 0;
+  }
+
   return this->currentSpeed;
 }
 
@@ -193,16 +185,7 @@ void Encoder::interrupt() {
     speed = -speed;
   }
 
-  int speedSum = speed;
-
-  for (int i = 0; i < sizeof(this->speedArray) / sizeof(this->speedArray[0]) - 1; i++) {
-    this->speedArray[i] = this->speedArray[i + 1];
-    speedSum += this->speedArray[i];
-  }
-
-  this->speedArray[sizeof(this->speedArray) / sizeof(this->speedArray[0]) - 1] = speed;
-
-  this->currentSpeed = speedSum / (sizeof(this->speedArray) / sizeof(this->speedArray[0]));
+  this->currentSpeed = speed;
 }
 
 
@@ -237,7 +220,7 @@ void Motor::drive(uint8_t speed, bool reversed) {
 void Motor::drivePID(uint8_t speed, bool reversed) {
   this->pidActive = true;
 
-  this->targetSpeed = float(speed) / 255 * float(this->maxSpeed);
+  this->targetSpeed = abs(float(speed) / 255 * float(this->maxSpeed));
   this->reversed = reversed;
 
   this->pidController.reset();
@@ -257,7 +240,7 @@ void Motor::update() {
     return;
   }
 
-  int currentSpeed = this->encoder->getSpeed();
+  int currentSpeed = abs(this->encoder->getSpeed());
   int error = this->targetSpeed - currentSpeed;
 
   int pid = this->pidController.calculatePID(error);
@@ -405,8 +388,6 @@ void loop() {
       char turnRate = Serial1.read();
 
       robot.drive(speed, turnRate);
-
-      Serial1.printf("%d %d OK\n", speed, turnRate);
     }
 
     else if (requestType == STOP_REQUEST) {
