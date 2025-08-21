@@ -5,10 +5,8 @@
 #define RIGHT_MOTOR_PWM 6
 #define RIGHT_MOTOR_DIR 5
 
-#define LEFT_ENCODER_A 10
-#define LEFT_ENCODER_B 9
-#define RIGHT_ENCODER_A 37
-#define RIGHT_ENCODER_B 38
+#define LEFT_ENCODER 10
+#define RIGHT_ENCODER 37
 
 #define TX_PIN 18 
 #define RX_PIN 17
@@ -43,17 +41,19 @@ private:
 
 class Encoder {
 public:
-  Encoder(uint8_t pinA, uint8_t pinB);
+  Encoder(uint8_t pin);
   int getCount();
   int getSpeed();
+  
+  void setReversed(bool reversed);
 
   void interrupt();
 
 private:
-  uint8_t pinA;
-  uint8_t pinB;
+  uint8_t pin;
 
   int count = 0;
+  bool reversed = false;
 
   time_t lastInterrupt = micros();
   int currentSpeed = 0;
@@ -147,12 +147,10 @@ void PIDController::reset() {
 */
 
 
-Encoder::Encoder(uint8_t pinA, uint8_t pinB) {
-  this->pinA = pinA;
-  this->pinB = pinB;
+Encoder::Encoder(uint8_t pin) {
+  this->pin = pin;
 
-  pinMode(this->pinA, INPUT);
-  pinMode(this->pinB, INPUT);
+  pinMode(this->pin, INPUT);
 }
 
 int Encoder::getCount() {
@@ -167,16 +165,18 @@ int Encoder::getSpeed() {
   return this->currentSpeed;
 }
 
-void Encoder::interrupt() {
-  uint8_t currentStateB = digitalRead(this->pinB);
+void Encoder::setReversed(bool reversed) {
+  this->reversed = reversed;
+}
 
+void Encoder::interrupt() {
   time_t ct = micros();
   int dt = micros() - this->lastInterrupt;
   this->lastInterrupt = ct;
 
   int speed = 1000000 / dt;
 
-  if (currentStateB > 0) {
+  if (!this->reversed) {
     count ++;
   }
 
@@ -212,6 +212,8 @@ void Motor::drive(uint8_t speed, bool reversed) {
   if (reversed) {
     speed = 255 - speed;
   }
+
+  self.encoder.setReversed(reversed);
 
   analogWrite(this->pwmPin, speed);
   digitalWrite(this->dirPin, reversed);
@@ -267,8 +269,8 @@ void Motor::update() {
 
 
 Robot::Robot() {
-  this->leftEncoder = std::make_shared<Encoder>(LEFT_ENCODER_A, LEFT_ENCODER_B);
-  this->rightEncoder = std::make_shared<Encoder>(RIGHT_ENCODER_A, RIGHT_ENCODER_B);
+  this->leftEncoder = std::make_shared<Encoder>(LEFT_ENCODER);
+  this->rightEncoder = std::make_shared<Encoder>(RIGHT_ENCODER);
 
   this->leftMotor = std::make_unique<Motor>(LEFT_MOTOR_PWM, LEFT_MOTOR_DIR, this->leftEncoder);
   this->rightMotor = std::make_unique<Motor>(RIGHT_MOTOR_PWM, RIGHT_MOTOR_DIR, this->rightEncoder);
@@ -348,8 +350,8 @@ void setup() {
   pinMode(36, OUTPUT);
   digitalWrite(36, HIGH);
   
-  attachInterrupt(digitalPinToInterrupt(LEFT_ENCODER_A), leftEncoderInterrupt, RISING);
-  attachInterrupt(digitalPinToInterrupt(RIGHT_ENCODER_A), rightEncoderInterrupt, RISING);
+  attachInterrupt(digitalPinToInterrupt(LEFT_ENCODER), leftEncoderInterrupt, RISING);
+  attachInterrupt(digitalPinToInterrupt(RIGHT_ENCODER), rightEncoderInterrupt, RISING);
 }
 
 void loop() {
