@@ -1,17 +1,21 @@
 #include <memory>
 
-#define LEFT_MOTOR_PWM 7
-#define LEFT_MOTOR_DIR 8
-#define RIGHT_MOTOR_PWM 6
-#define RIGHT_MOTOR_DIR 5
+#define LEFT_MOTOR_PWM 18
+#define LEFT_MOTOR_DIR_1 33
+#define LEFT_MOTOR_DIR_2 34
+#define RIGHT_MOTOR_PWM 38
+#define RIGHT_MOTOR_DIR_1 36
+#define RIGHT_MOTOR_DIR_2 37
 
-#define LEFT_ENCODER_A 10
-#define LEFT_ENCODER_B 9
-#define RIGHT_ENCODER_A 37
-#define RIGHT_ENCODER_B 38
+#define LEFT_ENCODER_A 15
+#define LEFT_ENCODER_B 16
+#define RIGHT_ENCODER_A 13
+#define RIGHT_ENCODER_B 14
 
-#define TX_PIN 18 
-#define RX_PIN 17
+#define STANDBY 35
+
+#define TX_PIN 12
+#define RX_PIN 11
 
 #define START_FLAG 0xA5
 #define END_FLAG 0x5A
@@ -62,7 +66,7 @@ private:
 
 class Motor {
 public:
-  Motor(uint8_t pwmPin, uint8_t dirPin, std::shared_ptr<Encoder> encoder);
+  Motor(uint8_t pwmPin, uint8_t dirPin1, uint8_t dirPin2, std::shared_ptr<Encoder> encoder);
   ~Motor();
 
   void drive(uint8_t speed, bool reversed);
@@ -77,7 +81,8 @@ public:
 
 private:
   uint8_t pwmPin;
-  uint8_t dirPin;
+  uint8_t dirPin1;
+  uint8_t dirPin2;
 
   uint targetSpeed = 0;
   bool reversed = false;
@@ -194,14 +199,16 @@ void Encoder::interrupt() {
 */
 
 
-Motor::Motor(uint8_t pwmPin, uint8_t dirPin, std::shared_ptr<Encoder> encoder) {
+Motor::Motor(uint8_t pwmPin, uint8_t dirPin1, uint8_t dirPin2, std::shared_ptr<Encoder> encoder) {
   this->pwmPin = pwmPin;
-  this->dirPin = dirPin;
+  this->dirPin1 = dirPin1;
+  this->dirPin2 = dirPin2;
 
   this->encoder = encoder;
 
   pinMode(this->pwmPin, OUTPUT);
-  pinMode(this->dirPin, OUTPUT);
+  pinMode(this->dirPin1, OUTPUT);
+  pinMode(this->dirPin2, OUTPUT);
 }
 
 Motor::~Motor() {
@@ -209,28 +216,33 @@ Motor::~Motor() {
 }
 
 void Motor::drive(uint8_t speed, bool reversed) {
-  if (reversed) {
-    speed = 255 - speed;
-  }
-
+  digitalWrite(STANDBY, HIGH);
+  
   analogWrite(this->pwmPin, speed);
-  digitalWrite(this->dirPin, reversed);
+  digitalWrite(this->dirPin1, reversed);
+  digitalWrite(this->dirPin2, !reversed);
 }
 
 void Motor::drivePID(uint8_t speed, bool reversed) {
   this->pidActive = true;
 
-  this->targetSpeed = abs(float(speed) / 255 * float(this->maxSpeed));
-  this->reversed = reversed;
+  uint targetSpeed = abs(float(speed) / 255 * float(this->maxSpeed));
 
-  this->pidController.reset();
+  if (abs(int(targetSpeed) - int(this->targetSpeed)) > 150) {
+    this->pidController.reset();
+  }
+
+  this->targetSpeed = targetSpeed;
+
+  this->reversed = reversed;
 
   this->update();
 }
 
 void Motor::stop() {
   analogWrite(this->pwmPin, 0);
-  digitalWrite(this->dirPin, LOW);
+  digitalWrite(this->dirPin1, LOW);
+  digitalWrite(this->dirPin2, LOW);
 
   this->pidActive = false;
 }
@@ -270,8 +282,8 @@ Robot::Robot() {
   this->leftEncoder = std::make_shared<Encoder>(LEFT_ENCODER_A, LEFT_ENCODER_B);
   this->rightEncoder = std::make_shared<Encoder>(RIGHT_ENCODER_A, RIGHT_ENCODER_B);
 
-  this->leftMotor = std::make_unique<Motor>(LEFT_MOTOR_PWM, LEFT_MOTOR_DIR, this->leftEncoder);
-  this->rightMotor = std::make_unique<Motor>(RIGHT_MOTOR_PWM, RIGHT_MOTOR_DIR, this->rightEncoder);
+  this->leftMotor = std::make_unique<Motor>(LEFT_MOTOR_PWM, LEFT_MOTOR_DIR_1, LEFT_MOTOR_DIR_2, this->leftEncoder);
+  this->rightMotor = std::make_unique<Motor>(RIGHT_MOTOR_PWM, RIGHT_MOTOR_DIR_1, RIGHT_MOTOR_DIR_2, this->rightEncoder);
 }
 
 void Robot::drive(int8_t speed, int8_t turnRate) {
@@ -316,6 +328,8 @@ void Robot::straight(uint8_t speed, uint8_t distance) {
 void Robot::stop() {
   this->leftMotor->stop();
   this->rightMotor->stop();
+
+  digitalWrite(STANDBY, LOW);
 }
 
 void Robot::update() {
@@ -344,9 +358,10 @@ void sendInt(int val) {
 void setup() {
   robot = Robot();
 
+  pinMode(STANDBY, OUTPUT);
+  digitalWrite(STANDBY, LOW);
+
   Serial1.begin(115200, SERIAL_8N1, RX_PIN, TX_PIN);
-  pinMode(36, OUTPUT);
-  digitalWrite(36, HIGH);
   
   attachInterrupt(digitalPinToInterrupt(LEFT_ENCODER_A), leftEncoderInterrupt, RISING);
   attachInterrupt(digitalPinToInterrupt(RIGHT_ENCODER_A), rightEncoderInterrupt, RISING);
